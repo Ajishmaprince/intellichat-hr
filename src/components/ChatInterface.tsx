@@ -140,18 +140,18 @@ const ChatInterface = ({ conversationId, initialMessages = [] }: ChatInterfacePr
   };
 
   return (
-    <div className="flex flex-col h-full bg-card rounded-lg shadow-md border">
-      <div className="p-4 border-b bg-gradient-to-r from-primary to-accent">
-        <h2 className="text-lg font-semibold text-primary-foreground">HR Assistant</h2>
-        <p className="text-sm text-primary-foreground/80">Ask about payroll, leave, or company policies</p>
+    <div className="flex flex-col h-full bg-slate-900/50 backdrop-blur-sm rounded-lg shadow-2xl border border-indigo-500/20">
+      <div className="p-4 border-b bg-gradient-to-r from-indigo-600 to-purple-600">
+        <h2 className="text-lg font-semibold text-white">Interview Coach</h2>
+        <p className="text-sm text-white/90">Practice interviews and get AI-powered feedback</p>
       </div>
 
       <ScrollArea ref={scrollRef} className="flex-1 p-4">
         <div className="space-y-4">
           {messages.length === 0 && (
-            <div className="text-center text-muted-foreground py-12">
-              <p className="text-lg font-medium mb-2">Welcome to HR Assistant</p>
-              <p className="text-sm">Ask me anything about your leave balance, payroll, or company policies</p>
+            <div className="text-center text-slate-300 py-12">
+              <p className="text-lg font-medium mb-2">👋 Welcome to InterviewPrep AI</p>
+              <p className="text-sm">Tell me what role you're preparing for, and I'll conduct a mock interview with personalized feedback!</p>
             </div>
           )}
           {messages.map((message, index) => (
@@ -163,9 +163,9 @@ const ChatInterface = ({ conversationId, initialMessages = [] }: ChatInterfacePr
               )}
             >
               {message.role === 'assistant' && (
-                <Avatar className="h-8 w-8 bg-primary">
-                  <AvatarFallback className="bg-primary text-primary-foreground text-xs">
-                    HR
+                <Avatar className="h-8 w-8 bg-gradient-to-br from-indigo-500 to-purple-600">
+                  <AvatarFallback className="bg-gradient-to-br from-indigo-500 to-purple-600 text-white text-xs">
+                    AI
                   </AvatarFallback>
                 </Avatar>
               )}
@@ -173,15 +173,15 @@ const ChatInterface = ({ conversationId, initialMessages = [] }: ChatInterfacePr
                 className={cn(
                   'rounded-lg px-4 py-2 max-w-[80%] shadow-sm transition-all',
                   message.role === 'user'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted text-foreground'
+                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white'
+                    : 'bg-slate-800/80 text-slate-100 border border-slate-700/50'
                 )}
               >
                 <p className="text-sm whitespace-pre-wrap">{message.content}</p>
               </div>
               {message.role === 'user' && (
-                <Avatar className="h-8 w-8 bg-accent">
-                  <AvatarFallback className="bg-accent text-accent-foreground text-xs">
+                <Avatar className="h-8 w-8 bg-slate-700">
+                  <AvatarFallback className="bg-slate-700 text-slate-200 text-xs">
                     You
                   </AvatarFallback>
                 </Avatar>
@@ -190,34 +190,34 @@ const ChatInterface = ({ conversationId, initialMessages = [] }: ChatInterfacePr
           ))}
           {isLoading && (
             <div className="flex gap-3">
-              <Avatar className="h-8 w-8 bg-primary">
-                <AvatarFallback className="bg-primary text-primary-foreground text-xs">
-                  HR
+              <Avatar className="h-8 w-8 bg-gradient-to-br from-indigo-500 to-purple-600">
+                <AvatarFallback className="bg-gradient-to-br from-indigo-500 to-purple-600 text-white text-xs">
+                  AI
                 </AvatarFallback>
               </Avatar>
-              <div className="bg-muted rounded-lg px-4 py-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
+              <div className="bg-slate-800/80 border border-slate-700/50 rounded-lg px-4 py-2">
+                <Loader2 className="h-4 w-4 animate-spin text-indigo-400" />
               </div>
             </div>
           )}
         </div>
       </ScrollArea>
 
-      <div className="p-4 border-t bg-secondary/30">
+      <div className="p-4 border-t border-indigo-500/20 bg-slate-900/30">
         <div className="flex gap-2">
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Type your question..."
+            placeholder="Type your response or question..."
             disabled={isLoading}
-            className="flex-1"
+            className="flex-1 bg-slate-800/50 border-slate-700/50 text-slate-100 placeholder:text-slate-400"
           />
           <Button
             onClick={handleSend}
             disabled={isLoading || !input.trim()}
             size="icon"
-            className="shrink-0"
+            className="shrink-0 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700"
           >
             {isLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
