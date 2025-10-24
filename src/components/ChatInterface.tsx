@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { cn } from '@/lib/utils';
+import { Loader2, Send, User, Bot, Volume2 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { VoiceRecorder } from './VoiceRecorder';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -12,15 +12,32 @@ interface Message {
 }
 
 interface ChatInterfaceProps {
-  conversationId?: string;
-  initialMessages?: Message[];
+  domain: string;
+  onScoreUpdate: (show: boolean) => void;
 }
 
-const ChatInterface = ({ conversationId, initialMessages = [] }: ChatInterfaceProps) => {
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
+const ChatInterface = ({ domain, onScoreUpdate }: ChatInterfaceProps) => {
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [questionCount, setQuestionCount] = useState(0);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
+  
+  useEffect(() => {
+    const greetings = {
+      technical: "Hi! I'm your AI interview coach for technical roles. Ready to begin?",
+      behavioral: "Hello! Let's practice behavioral questions using the STAR method!",
+      product: "Welcome! Let's discuss product thinking!",
+      sales: "Hi! Let's practice sales and marketing questions!"
+    };
+    
+    setMessages([{
+      role: 'assistant',
+      content: greetings[domain as keyof typeof greetings] || greetings.technical
+    }]);
+  }, [domain]);
 
   useEffect(() => {
     scrollToBottom();
@@ -28,100 +45,85 @@ const ChatInterface = ({ conversationId, initialMessages = [] }: ChatInterfacePr
 
   const scrollToBottom = () => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      scrollRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   };
 
-  const streamChat = async (messages: Message[]) => {
-    const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
-    
-    const response = await fetch(CHAT_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ messages, conversationId }),
-    });
-
-    if (!response.ok || !response.body) {
-      if (response.status === 429) {
-        throw new Error('Too many requests. Please try again in a moment.');
-      }
-      if (response.status === 402) {
-        throw new Error('AI service unavailable. Please contact support.');
-      }
-      throw new Error('Failed to get response');
+  const speakMessage = (text: string) => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 0.9;
+      utterance.onstart = () => setIsSpeaking(true);
+      utterance.onend = () => setIsSpeaking(false);
+      window.speechSynthesis.speak(utterance);
     }
+  };
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let assistantContent = '';
+  const streamChat = async (userMessage: Message) => {
+    try {
+      setQuestionCount(prev => prev + 1);
+      if (questionCount >= 3) onScoreUpdate(true);
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
+      const response = await fetch(CHAT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [...messages, userMessage], domain }),
+      });
 
-      buffer += decoder.decode(value, { stream: true });
-      
-      let newlineIndex: number;
-      while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
-        let line = buffer.slice(0, newlineIndex);
-        buffer = buffer.slice(newlineIndex + 1);
+      if (!response.ok) throw new Error('Failed to get response');
 
-        if (line.endsWith('\r')) line = line.slice(0, -1);
-        if (line.startsWith(':') || line.trim() === '') continue;
-        if (!line.startsWith('data: ')) continue;
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let assistantContent = '';
 
-        const jsonStr = line.slice(6).trim();
-        if (jsonStr === '[DONE]') continue;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-        try {
-          const parsed = JSON.parse(jsonStr);
-          const content = parsed.choices?.[0]?.delta?.content as string | undefined;
-          if (content) {
-            assistantContent += content;
-            setMessages(prev => {
-              const last = prev[prev.length - 1];
-              if (last?.role === 'assistant') {
-                return prev.map((m, i) => 
-                  i === prev.length - 1 ? { ...m, content: assistantContent } : m
-                );
-              }
-              return [...prev, { role: 'assistant', content: assistantContent }];
-            });
-          }
-        } catch {
-          // Ignore parsing errors for incomplete chunks
+        buffer += decoder.decode(value, { stream: true });
+        let newlineIndex: number;
+        while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+          let line = buffer.slice(0, newlineIndex);
+          buffer = buffer.slice(newlineIndex + 1);
+          if (!line.startsWith('data: ')) continue;
+          const jsonStr = line.slice(6).trim();
+          if (jsonStr === '[DONE]') continue;
+
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const content = parsed.choices?.[0]?.delta?.content;
+            if (content) {
+              assistantContent += content;
+              setMessages(prev => {
+                const last = prev[prev.length - 1];
+                if (last?.role === 'assistant') {
+                  return prev.map((m, i) => i === prev.length - 1 ? { ...m, content: assistantContent } : m);
+                }
+                return [...prev, { role: 'assistant', content: assistantContent }];
+              });
+            }
+          } catch {}
         }
       }
+
+      speakMessage(assistantContent);
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to send message", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
-
     const userMessage: Message = { role: 'user', content: input.trim() };
-    const newMessages = [...messages, userMessage];
-    
-    setMessages(newMessages);
+    setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
-
-    try {
-      await streamChat(newMessages);
-    } catch (error) {
-      console.error('Chat error:', error);
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: error instanceof Error ? error.message : 'Sorry, I encountered an error. Please try again.',
-        },
-      ]);
-    } finally {
-      setIsLoading(false);
-    }
+    await streamChat(userMessage);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -131,92 +133,67 @@ const ChatInterface = ({ conversationId, initialMessages = [] }: ChatInterfacePr
     }
   };
 
-  return (
-    <div className="flex flex-col h-full bg-slate-900/50 backdrop-blur-sm rounded-lg shadow-2xl border border-indigo-500/20">
-      <div className="p-4 border-b bg-gradient-to-r from-indigo-600 to-purple-600">
-        <h2 className="text-lg font-semibold text-white">Interview Coach</h2>
-        <p className="text-sm text-white/90">Practice interviews and get AI-powered feedback</p>
-      </div>
+  const handleVoiceTranscript = (text: string) => {
+    setInput(text);
+    setTimeout(() => handleSend(), 500);
+  };
 
-      <ScrollArea ref={scrollRef} className="flex-1 p-4">
-        <div className="space-y-4">
-          {messages.length === 0 && (
-            <div className="text-center text-slate-300 py-12">
-              <p className="text-lg font-medium mb-2">👋 Welcome to InterviewPrep AI</p>
-              <p className="text-sm">Tell me what role you're preparing for, and I'll conduct a mock interview with personalized feedback!</p>
-            </div>
-          )}
-          {messages.map((message, index) => (
-            <div
-              key={index}
-              className={cn(
-                'flex gap-3',
-                message.role === 'user' ? 'justify-end' : 'justify-start'
-              )}
-            >
-              {message.role === 'assistant' && (
-                <Avatar className="h-8 w-8 bg-gradient-to-br from-indigo-500 to-purple-600">
-                  <AvatarFallback className="bg-gradient-to-br from-indigo-500 to-purple-600 text-white text-xs">
-                    AI
-                  </AvatarFallback>
-                </Avatar>
-              )}
-              <div
-                className={cn(
-                  'rounded-lg px-4 py-2 max-w-[80%] shadow-sm transition-all',
-                  message.role === 'user'
-                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white'
-                    : 'bg-slate-800/80 text-slate-100 border border-slate-700/50'
-                )}
-              >
-                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-              </div>
-              {message.role === 'user' && (
-                <Avatar className="h-8 w-8 bg-slate-700">
-                  <AvatarFallback className="bg-slate-700 text-slate-200 text-xs">
-                    You
-                  </AvatarFallback>
-                </Avatar>
-              )}
-            </div>
-          ))}
-          {isLoading && (
-            <div className="flex gap-3">
-              <Avatar className="h-8 w-8 bg-gradient-to-br from-indigo-500 to-purple-600">
-                <AvatarFallback className="bg-gradient-to-br from-indigo-500 to-purple-600 text-white text-xs">
-                  AI
-                </AvatarFallback>
-              </Avatar>
-              <div className="bg-slate-800/80 border border-slate-700/50 rounded-lg px-4 py-2">
-                <Loader2 className="h-4 w-4 animate-spin text-indigo-400" />
-              </div>
+  return (
+    <div className="max-w-4xl mx-auto">
+      <div className="bg-card backdrop-blur-lg rounded-2xl shadow-xl border border-border overflow-hidden">
+        <div className="bg-gradient-to-r from-primary to-accent p-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Bot className="h-6 w-6 text-primary-foreground animate-float" />
+            <h2 className="text-xl font-semibold text-primary-foreground">AI Interview Coach</h2>
+          </div>
+          {isSpeaking && (
+            <div className="flex items-center gap-2 text-primary-foreground animate-pulse">
+              <Volume2 className="h-4 w-4" />
+              <span className="text-sm">Speaking...</span>
             </div>
           )}
         </div>
-      </ScrollArea>
 
-      <div className="p-4 border-t border-indigo-500/20 bg-slate-900/30">
-        <div className="flex gap-2">
-          <Input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder="Type your response or question..."
-            disabled={isLoading}
-            className="flex-1 bg-slate-800/50 border-slate-700/50 text-slate-100 placeholder:text-slate-400"
-          />
-          <Button
-            onClick={handleSend}
-            disabled={isLoading || !input.trim()}
-            size="icon"
-            className="shrink-0 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700"
-          >
-            {isLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4" />
+        <ScrollArea className="h-[500px] p-6">
+          <div className="space-y-4">
+            {messages.map((message, index) => (
+              <div key={index} className={`flex gap-3 animate-fade-in ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                {message.role === 'assistant' && (
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center animate-pulse-glow">
+                    <Bot className="h-5 w-5 text-primary-foreground" />
+                  </div>
+                )}
+                <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground border border-border'}`}>
+                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                </div>
+                {message.role === 'user' && (
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent to-primary flex items-center justify-center">
+                    <User className="h-5 w-5 text-primary-foreground" />
+                  </div>
+                )}
+              </div>
+            ))}
+            {isLoading && (
+              <div className="flex gap-3 animate-fade-in">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center">
+                  <Bot className="h-5 w-5 text-primary-foreground" />
+                </div>
+                <div className="bg-muted rounded-2xl px-4 py-3"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>
+              </div>
             )}
-          </Button>
+            <div ref={scrollRef} />
+          </div>
+        </ScrollArea>
+
+        <div className="p-4 border-t border-border bg-muted/30">
+          <form onSubmit={(e) => { e.preventDefault(); handleSend(); }} className="flex gap-2">
+            <VoiceRecorder onTranscript={handleVoiceTranscript} disabled={isLoading} />
+            <Input value={input} onChange={(e) => setInput(e.target.value)} onKeyPress={handleKeyPress} placeholder="Type or use voice..." disabled={isLoading} className="flex-1" />
+            <Button type="submit" disabled={isLoading || !input.trim()} className="bg-gradient-to-r from-primary to-accent">
+              {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+            </Button>
+          </form>
+          <p className="text-xs text-muted-foreground mt-2 text-center">Questions: {questionCount}</p>
         </div>
       </div>
     </div>

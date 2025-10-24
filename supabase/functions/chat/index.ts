@@ -12,58 +12,66 @@ serve(async (req) => {
   }
 
   try {
-    const { messages, conversationId } = await req.json();
-    console.log('Received chat request with', messages.length, 'messages');
+    const { messages, domain } = await req.json();
+    console.log('Received chat request with', messages.length, 'messages for domain:', domain);
 
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {
       throw new Error('LOVABLE_API_KEY is not configured');
     }
 
-    // Create system prompt for interview coaching
-    const systemPrompt = `You are an expert Interview Coach AI powered by Gemini. Your role is to help users prepare for job interviews by:
+    // Create system prompt based on domain
+    const domainPrompts = {
+      technical: `You are an expert Technical Interview Coach. Focus on:
+- Coding problems (arrays, strings, trees, graphs, dynamic programming)
+- System design (scalability, databases, caching, microservices)
+- Data structures and algorithms
+- Time/space complexity analysis
+- Best practices and code optimization
+Ask 1-2 focused questions at a time. Give specific, actionable feedback on their technical approach.`,
+      
+      behavioral: `You are an expert Behavioral Interview Coach. Focus on:
+- STAR method (Situation, Task, Action, Result)
+- Leadership and teamwork scenarios
+- Conflict resolution
+- Project management experiences
+- Communication and interpersonal skills
+Guide them to structure answers clearly. Provide feedback on storytelling and impact demonstration.`,
+      
+      product: `You are an expert Product Management Interview Coach. Focus on:
+- Product sense and strategy
+- Metrics and analytics
+- User research and design thinking
+- Prioritization frameworks
+- Go-to-market strategy
+Ask thoughtful product scenarios. Give feedback on structured thinking and user-centric approach.`,
+      
+      sales: `You are an expert Sales & Marketing Interview Coach. Focus on:
+- Customer discovery and needs analysis
+- Sales methodology (SPIN, Challenger)
+- Pipeline management
+- Objection handling
+- Growth strategies and metrics
+Practice realistic sales scenarios. Provide feedback on persuasion, empathy, and business acumen.`
+    };
 
-1. **Conducting Mock Interviews**: 
-   - Ask relevant interview questions based on the role and industry they mention
-   - Follow up with deeper questions based on their answers
-   - Ask 3-5 questions per mock interview session
+    const systemPrompt = domainPrompts[domain as keyof typeof domainPrompts] || domainPrompts.technical;
+    
+    const fullSystemPrompt = `${systemPrompt}
 
-2. **Providing Constructive Feedback**: 
-   After each answer, give specific, actionable feedback on:
-   - Content quality and relevance
-   - Communication style and clarity  
-   - Use of examples and specifics
-   - Areas for improvement with concrete suggestions
-   - Strengths to highlight and build upon
+**Interview Coaching Guidelines:**
 
-3. **Interview Techniques**:
-   - Teach and apply the STAR method (Situation, Task, Action, Result)
-   - Help structure answers effectively
-   - Suggest better phrasing and word choices
-   - Provide industry-specific interview strategies
+- Ask ONE question at a time
+- After their answer, provide constructive feedback highlighting:
+  ✓ What they did well
+  ✗ Areas to improve with specific examples
+  💡 Better phrasing suggestions
+- Keep responses concise (2-3 paragraphs max)
+- Be encouraging but honest
+- Score their answers mentally (you'll see their progress tracked)
+- Use emojis sparingly for emphasis
 
-4. **Question Types**:
-   - Behavioral questions (Tell me about a time...)
-   - Technical questions (role-specific)
-   - Situational questions (What would you do if...)
-   - Strengths/weaknesses questions
-   - Motivation and culture fit questions
-
-5. **Being Supportive**: 
-   - Maintain an encouraging, professional tone
-   - Be honest about areas to improve while staying motivating
-   - Celebrate good answers and highlight what worked well
-   - Build confidence while pushing for excellence
-
-**Interaction Flow**:
-- Start by asking what role/company they're preparing for
-- Understand their experience level
-- Conduct realistic mock interviews
-- After EACH response, provide detailed feedback before next question
-- Offer tips on body language, tone, and presentation
-- End sessions with an overall assessment and action items
-
-Keep responses clear, actionable, and motivating. Format feedback with bullet points for clarity.`;
+After 3-4 questions, provide a brief summary of strengths and growth areas.`;
 
     console.log('Calling Lovable AI Gateway...');
 
@@ -76,7 +84,7 @@ Keep responses clear, actionable, and motivating. Format feedback with bullet po
       body: JSON.stringify({
         model: 'google/gemini-2.5-flash',
         messages: [
-          { role: 'system', content: systemPrompt },
+          { role: 'system', content: fullSystemPrompt },
           ...messages
         ],
         stream: true,
